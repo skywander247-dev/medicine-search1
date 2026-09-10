@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>晨心藥品儲位查詢系統</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#2563eb">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    body { background-color: #f1f5f9; color: #1e293b; padding-bottom: 40px; }
+    .header { background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 18px 16px; text-align: center; position: sticky; top: 0; z-index: 50; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+    .header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.5px; }
+    .header p { font-size: 0.8rem; opacity: 0.9; margin-top: 4px; }
+    
+    .search-bar-container { position: sticky; top: 68px; z-index: 40; background: #f1f5f9; padding: 12px 16px 8px; }
+    .search-box { display: flex; align-items: center; background: white; border-radius: 12px; padding: 6px 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); border: 1.5px solid #cbd5e1; }
+    .search-box:focus-within { border-color: #2563eb; }
+    .search-input { flex: 1; border: none; outline: none; font-size: 1rem; padding: 6px 8px; color: #0f172a; }
+    .icon-btn { background: none; border: none; outline: none; cursor: pointer; padding: 6px 8px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+    .mic-btn { background-color: #eff6ff; color: #2563eb; margin-left: 6px; }
+    .mic-btn.listening { background-color: #ef4444; color: white; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.08); } 100% { transform: scale(1); } }
+    
+    .stats-bar { display: flex; justify-content: space-between; align-items: center; padding: 6px 20px; font-size: 0.82rem; color: #64748b; }
+    .card-list { padding: 8px 16px; display: flex; flex-direction: column; gap: 10px; }
+    .card { background: white; border-radius: 12px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border-left: 5px solid #3b82f6; display: flex; flex-direction: column; gap: 6px; }
+    .card.storage { border-left-color: #f59e0b; }
+    .card.zone-b { border-left-color: #10b981; }
+    .card-top { display: flex; justify-content: space-between; align-items: baseline; }
+    .shelf-badge { background: #dbeafe; color: #1d4ed8; font-size: 1.1rem; font-weight: 800; padding: 3px 10px; border-radius: 8px; letter-spacing: 0.5px; }
+    .shelf-badge.storage-badge { background: #fef3c7; color: #b45309; }
+    .shelf-badge.zone-b-badge { background: #d1fae5; color: #047857; }
+    .code-tags { display: flex; gap: 6px; font-size: 0.78rem; font-weight: 600; }
+    .tag { padding: 2px 6px; border-radius: 4px; }
+    .tag-med { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+    .tag-nhi { background: #e0f2fe; color: #0369a1; }
+    
+    .drug-name-main { font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-top: 2px; }
+    .drug-name-sub { font-size: 0.85rem; color: #64748b; line-height: 1.3; }
+    
+    .empty-state { text-align: center; padding: 40px 20px; color: #94a3b8; }
+    .speech-status { text-align: center; font-size: 0.82rem; color: #ef4444; font-weight: 600; min-height: 18px; margin-top: 2px; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>晨心藥品儲位系統</h1>
+    <p>支援語音辨識與多關鍵字即時比對</p>
+  </div>
+
+  <div class="search-bar-container">
+    <div class="search-box">
+      <input type="text" id="searchInput" class="search-input" placeholder="輸入藥名、藥代(如LOR3)、儲位..." autocomplete="off">
+      <button id="clearBtn" class="icon-btn" style="display:none; color:#94a3b8;">✕</button>
+      <button id="micBtn" class="icon-btn mic-btn" title="語音輸入">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+      </button>
+    </div>
+    <div id="speechStatus" class="speech-status"></div>
+  </div>
+
+  <div class="stats-bar">
+    <span id="resultCount">共 172 筆藥品</span>
+    <span>常態 / 庫存皆可查</span>
+  </div>
+
+  <div id="cardList" class="card-list"></div>
+
+  <script>
+    // 內嵌 172 筆完整儲位資料庫（含最新補齊之藥代與健保碼）
+    const DRUG_DATA = [
+      {"儲位":"架A-1-5","藥代":"DIO0","健保碼":"BC23373100","名稱1":"Diovan 80","名稱2":"","名稱3":""},
+      {"儲位":"架A-1-4","藥代":"DON0","健保碼":"AC61523100","名稱1":"Paliperidone 3mg","名稱2":"Donvex 3mg","名稱3":""},
+      {"儲位":"架A-1-3","藥代":"LAM0","健保碼":"AC47400100","名稱1":"Lamta 50mg","名稱2":"Lamotrigine 50mg","名稱3":""},
+      {"儲位":"架A-1-2","藥代":"BUS","健保碼":"AC401341G0","名稱1":"Sepirone","名稱2":"怡必隆","名稱3":""},
+      {"儲位":"架A-1-1","藥代":"APO2","健保碼":"BC26196100","名稱1":"APO-ATOMOXETINE 40mg","名稱2":"安保思定40mg","名稱3":""},
+      {"儲位":"架A-1-4","藥代":"PRE0","健保碼":"AC60273100","名稱1":"Pregabalin 75mg","名稱2":"普疼立寧","名稱3":""},
+      {"儲位":"架A-1-4","藥代":"REQ0","健保碼":"BC22882100","名稱1":"Requip 0.25mg","名稱2":"力必平","名稱3":""},
+      {"儲位":"架A-1-3","藥代":"SLUO","健保碼":"AC45847100","名稱1":"Sluxdin","名稱2":"賜降","名稱3":""},
+      {"儲位":"架A-1-3","藥代":"PRO0","健保碼":"NC05040100","名稱1":"Prochlorperazine","名稱2":"蘋果酸丙氯陪拉辛","名稱3":""},
+      {"儲位":"架A-1-3","藥代":"LURA","健保碼":"BC26668100","名稱1":"Latuda 40mg","名稱2":"樂途達","名稱3":"Lurasidone"},
+      {"儲位":"架A-1-3","藥代":"ERGON","健保碼":"NC00140100","名稱1":"Ergoton","名稱2":"易克痛","名稱3":""},
+      {"儲位":"架A-1-2","藥代":"BIS2","健保碼":"AC495041G0","名稱1":"Biso 1.25mg","名稱2":"百適歐","名稱3":""},
+      {"儲位":"架A-1-2","藥代":"SOL0","健保碼":"AB254021G0","名稱1":"Solacon","名稱2":"舒可樂","名稱3":""},
+      {"儲位":"架A-1-2","藥代":"PIL0","健保碼":"AC047371G0","名稱1":"Pilian 4mg","名稱2":"Cyproheptadine 4mg","名稱3":"佩你安錠"},
+      {"儲位":"架A-1-2","藥代":"CATO","健保碼":"BC201571G0","名稱1":"Cataflam 25mg","名稱2":"克他服寧 25mg","名稱3":""},
+      {"儲位":"架A-1-1","藥代":"APO1","健保碼":"BC26193100","名稱1":"APO-ATOMOXETINE 25mg","名稱2":"安保思定25mg","名稱3":""},
+      {"儲位":"架A-1-1","藥代":"","健保碼":"","名稱1":"Acarbose 50mg","名稱2":"志樂恆","名稱3":""},
+      {"儲位":"架A-1-1","藥代":"ANBO","健保碼":"AC42660100","名稱1":"Anbicyn 625mg","名稱2":"","名稱3":""},
+      {"儲位":"架A-2-5","藥代":"ANX2","健保碼":"AC48772100","名稱1":"可明憶","名稱2":"Anxomine","名稱3":"Dihydroergotoxine methanesulfonate"},
+      {"儲位":"架A-2-5","藥代":"DEP2","健保碼":"BC22008100","名稱1":"Depakine Chrono 500mg","名稱2":"帝拔癲","名稱3":""},
+      {"儲位":"架A-2-5","藥代":"FER2","健保碼":"AC51022100","名稱1":"Ferich","名稱2":"富鐵隆","名稱3":""},
+      {"儲位":"架A-2-4","藥代":"QUE3","健保碼":"AC49316100","名稱1":"Calm-EZ","名稱2":"康緒舒","名稱3":"Quetiapine 200mg"},
+      {"儲位":"架A-2-4","藥代":"ROTO","健保碼":"AA57843100","名稱1":"Roty","名稱2":"諾脂替","名稱3":"Rosuvastatin"},
+      {"儲位":"架A-2-4","藥代":"RIS","健保碼":"AC48996100","名稱1":"Blue-Up 1mg","名稱2":"易憂安","名稱3":"Risperidone"},
+      {"儲位":"架A-2-4","藥代":"SENN","健保碼":"A037697100","名稱1":"Through","名稱2":"便通樂","名稱3":"Sennosides"},
+      {"儲位":"架A-2-3","藥代":"MAG0","健保碼":"A013382100","名稱1":"Mgo","名稱2":"","名稱3":""},
+      {"儲位":"架A-2-3","藥代":"MET0","健保碼":"AC585341G0","名稱1":"Metformin","名稱2":"寬樂醣","名稱3":""},
+      {"儲位":"架A-2-3","藥代":"MOS0","健保碼":"AC572541G0","名稱1":"Mosapin","名稱2":"順胃暢","名稱3":"Mosapride"},
+      {"儲位":"架A-2-3","藥代":"MIR0","健保碼":"AA56761100","名稱1":"Mirtazapine 30mg","名稱2":"彌鬱停","名稱3":""},
+      {"儲位":"架A-2-2","藥代":"ANX2","健保碼":"AC48772100","名稱1":"可明憶","名稱2":"Anxomine","名稱3":"Dihydroergotoxine methanesulfonate"},
+      {"儲位":"架A-2-2","藥代":"MED","健保碼":"AC27528100","名稱1":"Methon","名稱2":"滅嗽","名稱3":"Dextromethorphan"},
+      {"儲位":"架A-2-2","藥代":"DIPI","健保碼":"AC150781G0","名稱1":"Diphenidol","名稱2":"敵芬尼朵","名稱3":""},
+      {"儲位":"架A-2-2","藥代":"COLO","健保碼":"AC483441G0","名稱1":"Colian","名稱2":"可立安","名稱3":"Doxepin"},
+      {"儲位":"架A-2-1","藥代":"AGO","健保碼":"BC25451100","名稱1":"Valdoxan","名稱2":"煩多閃","名稱3":"Agomelatine"},
+      {"儲位":"架A-2-1","藥代":"APAP8","健保碼":"A006271100","名稱1":"Paran","名稱2":"伯樂","名稱3":"Acetaminophen"},
+      {"儲位":"架A-2-1","藥代":"TRY1","健保碼":"AC00649100","名稱1":"Trynol 10mg","名稱2":"德利能 10mg","名稱3":"Amitriptyline 10mg"},
+      {"儲位":"架A-2-1","藥代":"TRY0","健保碼":"AC006391G0","名稱1":"Trynol 25mg","名稱2":"德利能 25mg","名稱3":"Amitriptyline 25mg"},
+      {"儲位":"架A-3-5","藥代":"PRO1","健保碼":"AC590551G0","名稱1":"Pro-Nerv","名稱2":"補神元","名稱3":""},
+      {"儲位":"架A-3-5","藥代":"OSI","健保碼":"自費15/顆","名稱1":"Xenical","名稱2":"歐仙","名稱3":"Orlistat"},
+      {"儲位":"架A-3-4","藥代":"SER","健保碼":"AC47638100","名稱1":"Zapline","名稱2":"憂必晴","名稱3":"Sertraline"},
+      {"儲位":"架A-3-4","藥代":"SUL","健保碼":"AC365061G0","名稱1":"Sunpylon","名稱2":"舒必朗","名稱3":"Sulpiride"},
+      {"儲位":"架A-3-4","藥代":"SILI","健保碼":"AC395371G0","名稱1":"Silymarin","名稱2":"","名稱3":""},
+      {"儲位":"架A-3-3","藥代":"MIN0","健保碼":"AC50016100","名稱1":"Minivane","名稱2":"邁慮煩","名稱3":"Mirtazapine"},
+      {"儲位":"架A-3-3","藥代":"ANIO","健保碼":"AC191371G0","名稱1":"Anicamet","名稱2":"安力佳","名稱3":"Nicametate"},
+      {"儲位":"架A-3-3","藥代":"NAL","健保碼":"自費100/顆","名稱1":"Notholic","名稱2":"納霍利","名稱3":"Naltrexone"},
+      {"儲位":"架A-3-3","藥代":"OKWO","健保碼":"AC44270100","名稱1":"OKWE","名稱2":"歐克胃","名稱3":"Omeprazole"},
+      {"儲位":"架A-3-2","藥代":"ESC1","健保碼":"AC57383100","名稱1":"Escitalo 5mg","名稱2":"易思坦","名稱3":"ESCITALOPRAM"},
+      {"儲位":"架A-3-2","藥代":"FLU","健保碼":"AC58174100","名稱1":"FLUPEN","名稱2":"服緒安","名稱3":"FLUPENTIXOL"},
+      {"儲位":"架A-3-2","藥代":"ESC","健保碼":"AA49629100","名稱1":"Leeyo 10mg","名稱2":"離憂","名稱3":"Escitalopram"},
+      {"儲位":"架A-3-2","藥代":"FUTO","健保碼":"AC495771G0","名稱1":"Fute 0.5mg","名稱2":"安平靜","名稱3":"Flupentixol"},
+      {"儲位":"架A-3-1","藥代":"AML3","健保碼":"AC57114100","名稱1":"Amlodipine","名稱2":"安壓得穩","名稱3":"Amlodipine"},
+      {"儲位":"架A-3-1","藥代":"APOO","健保碼":"BC24626100","名稱1":"Apo-Zopiclone 7.5mg","名稱2":"安保舒眠","名稱3":"Zopiclone"},
+      {"儲位":"架A-3-1","藥代":"MUBO","健保碼":"AC361511G0","名稱1":"Ambroxol 30mg","名稱2":"平痰息","名稱3":""},
+      {"儲位":"架A-3-1","藥代":"AMI","健保碼":"AC55051100","名稱1":"Misul","名稱2":"美贊","名稱3":"Amisulpride"},
+      {"儲位":"架A-4-5","藥代":"SWI0","健保碼":"AC395971G0","名稱1":"Switane 2mg","名稱2":"瑞丹","名稱3":"Trihexyphenidyl"},
+      {"儲位":"架A-4-5","藥代":"TELO","健保碼":"AC61156100","名稱1":"Telmisa 80mg","名稱2":"心壓妥錠","名稱3":"Telmisartan"},
+      {"儲位":"架A-4-5","藥代":"TRA","健保碼":"AC43431100","名稱1":"Mesyrel 25mg","名稱2":"美舒鬱","名稱3":"Trazodone"},
+      {"儲位":"架A-4-4","藥代":"VAR0","健保碼":"B029009100","名稱1":"戒衛清0.5mg","名稱2":"","名稱3":""},
+      {"儲位":"架A-4-4","藥代":"VARI","健保碼":"B029010100","名稱1":"戒衛清1mg","名稱2":"","名稱3":""},
+      {"儲位":"架A-4-4","藥代":"TELO","健保碼":"AC61156100","名稱1":"Telmisa 80mg","名稱2":"心壓妥錠","名稱3":"Telmisartan"},
+      {"儲位":"架A-4-4","藥代":"SWI0","健保碼":"AC395971G0","名稱1":"Switane 2mg","名稱2":"瑞丹","名稱3":"Trihexyphenidyl"},
+      {"儲位":"架A-4-3","藥代":"MIR1","健保碼":"BC25258100","名稱1":"Mirapex 0.375mg","名稱2":"樂伯克","名稱3":"Pramipexole"},
+      {"儲位":"架A-4-3","藥代":"OSI","健保碼":"自費15/顆","名稱1":"Xenical","名稱2":"歐仙","名稱3":"Orlistat"},
+      {"儲位":"架A-4-3","藥代":"OLA1","健保碼":"AA56680100","名稱1":"Olan 5mg","名稱2":"若寧","名稱3":"Olanzapine"},
+      {"儲位":"架A-4-2","藥代":"SYNO","健保碼":"AC49808100","名稱1":"Synpid 200mg","名稱2":"脂淨","名稱3":"Fenofibrate"},
+      {"儲位":"架A-4-2","藥代":"SUZ0","健保碼":"AC295721G0","名稱1":"Suzin 5mg","名稱2":"舒腦","名稱3":"Flunarizine"},
+      {"儲位":"架A-4-2","藥代":"FAM0","健保碼":"AC57791100","名稱1":"Famotidine 20mg","名稱2":"法瑪鎮","名稱3":""},
+      {"儲位":"架A-4-1","藥代":"ARI1","健保碼":"AC60589100","名稱1":"Aripizole 2mg","名稱2":"安瑞平","名稱3":"Aripiprazole 2mg"},
+      {"儲位":"架A-4-1","藥代":"ARI4","健保碼":"AC61459100","名稱1":"Arizole 5mg","名稱2":"羅亞達","名稱3":"Aripiprazole 5mg"},
+      {"儲位":"架A-4-1","藥代":"BIS1","健保碼":"AC189491G0","名稱1":"Bisacodyl","名稱2":"","名稱3":""},
+      {"儲位":"架A-5-5","藥代":"LIL0","健保碼":"AC22404100","名稱1":"Lithium","名稱2":"","名稱3":""},
+      {"儲位":"架A-5-4","藥代":"LEV0","健保碼":"AC59418100","名稱1":"Levelin 25mg","名稱2":"力停癲 25mg","名稱3":"Topiramate 25mg"},
+      {"儲位":"架A-5-4","藥代":"LEV1","健保碼":"AC57911100","名稱1":"Levelin 100mg","名稱2":"力停癲 100mg","名稱3":"Topiramate 100mg"},
+      {"儲位":"架A-5-4","藥代":"VEN3","健保碼":"AA55417100","名稱1":"Easyfor 37.5mg","名稱2":"悅康 37.5mg","名稱3":"Venlafaxine 37.5mg"},
+      {"儲位":"架A-5-4","藥代":"VEN","健保碼":"AC49583100","名稱1":"Rafax 75mg","名稱2":"蘿菲思 75mg","名稱3":"Venlafaxine 75mg"},
+      {"儲位":"架A-5-3","藥代":"PIT1","健保碼":"AA58648100","名稱1":"Pitarty 2mg","名稱2":"力脂替 2mg","名稱3":"Pitavastatin"},
+      {"儲位":"架A-5-3","藥代":"STOI","健保碼":"AC194621G0","名稱1":"Stoline","名稱2":"舒胃寧","名稱3":"Oxethazaine"},
+      {"儲位":"架A-5-3","藥代":"PAR0","健保碼":"AC58256100","名稱1":"Paroxin 20mg","名稱2":"百樂行 20mg","名稱3":"Paroxetine 20mg"},
+      {"儲位":"架A-5-3","藥代":"SER2","健保碼":"BC24256100","名稱1":"Seroxat 12.5mg","名稱2":"克憂果 12.5mg","名稱3":"Paroxetine 12.5mg"},
+      {"儲位":"架A-5-3","藥代":"PIO","健保碼":"AA57769100","名稱1":"Glitos 15mg","名稱2":"泌特士 15mg","名稱3":"Pioglitazone"},
+      {"儲位":"架A-5-2","藥代":"LOT1","健保碼":"AC61533100","名稱1":"Lote 100mg","名稱2":"樂得 100mg","名稱3":"Fluvoxamine 100mg"},
+      {"儲位":"架A-5-2","藥代":"GIN0","健保碼":"AC406991G0","名稱1":"Ginkgo 40mg","名稱2":"","名稱3":""},
+      {"儲位":"架A-5-2","藥代":"LITH","健保碼":"AC09299100","名稱1":"Ligilin 300mg","名稱2":"鋰齊寧 300mg","名稱3":"Lithium 300mg"},
+      {"儲位":"架A-5-2","藥代":"XYZ0","健保碼":"AC50145100","名稱1":"Xyzine 5mg","名稱2":"萊欣 5mg","名稱3":"Levocetirizine 5mg"},
+      {"儲位":"架A-5-1","藥代":"BUP","健保碼":"AC55005100","名稱1":"Prewell 150mg","名稱2":"復維樂 150mg","名稱3":"Bupropion 150mg"},
+      {"儲位":"架A-5-1","藥代":"NILO","健保碼":"AC470921G0","名稱1":"Nilasen 16mg","名稱2":"寧耳眩","名稱3":"Betahistine"},
+      {"儲位":"架A-5-1","藥代":"CLZ","健保碼":"AC42448100","名稱1":"Clopine 100mg","名稱2":"克慮平 100mg","名稱3":"Clozapine 100mg"},
+      {"儲位":"桌左","藥代":"DUX0","健保碼":"AA56776100","名稱1":"Duxetine 30mg","名稱2":"萬憂停 30mg","名稱3":"Duloxetine 30mg"},
+      {"儲位":"桌左","藥代":"DULO","健保碼":"AC59210100","名稱1":"Bupronil 30mg","名稱2":"普憂寧 30mg","名稱3":"Duloxetine 30mg"},
+      {"儲位":"桌左","藥代":"QUES","健保碼":"AC59275100","名稱1":"Quepine 100mg","名稱2":"瑰樂平 100mg","名稱3":"Quetiapine 100mg"},
+      {"儲位":"桌左","藥代":"QUE4","健保碼":"AB57850100","名稱1":"Quepine 25mg","名稱2":"瑰樂平 25mg","名稱3":"Quetiapine 25mg"},
+      {"儲位":"桌中","藥代":"TRA","健保碼":"AC43431100","名稱1":"Mesyrel 25mg","名稱2":"美舒鬱 25mg","名稱3":"Trazodone 25mg"},
+      {"儲位":"桌中","藥代":"ZOL0","健保碼":"AC573061G0","名稱1":"Zolpidem 10mg","名稱2":"柔拍 10mg","名稱3":""},
+      {"儲位":"桌中","藥代":"ERI0","健保碼":"AC467291G0","名稱1":"Erispan-S","名稱2":"癒利舒盼","名稱3":"Fludiazepam"},
+      {"儲位":"桌中","藥代":"ESC","健保碼":"AA49629100","名稱1":"Leeyo","名稱2":"離憂","名稱3":"Escitalopram"},
+      {"儲位":"桌右","藥代":"OKWO","健保碼":"AC44270100","名稱1":"OKWE","名稱2":"歐克胃","名稱3":"Omeprazole"},
+      {"儲位":"桌右","藥代":"MOC","健保碼":"AC46759100","名稱1":"Mocalm","名稱2":"永康緒","名稱3":""},
+      {"儲位":"桌右","藥代":"VOR1","健保碼":"BC28599100","名稱1":"Brintellix 10mg","名稱2":"敏特思 10mg","名稱3":"Vortioxetine 10mg"},
+      {"儲位":"桌右","藥代":"IND","健保碼":"AC586241G0","名稱1":"Prodera 10mg","名稱2":"保得樂 10mg","名稱3":"Propranolol 10mg"},
+      {"儲位":"屜A-1-1","藥代":"RIV3","健保碼":"AA57843100","名稱1":"Rivopam 2mg","名稱2":"可那平 2mg","名稱3":"Clonazepam 2mg"},
+      {"儲位":"屜A-1-1","藥代":"MOD","健保碼":"AC484721G0","名稱1":"Fallep 2mg","名稱2":"服爾眠","名稱3":"Flunitrazepam"},
+      {"儲位":"屜A-1-1","藥代":"ESZ0","健保碼":"AC426461G0","名稱1":"ESZO 2mg","名稱2":"艾斯樂 2mg","名稱3":"Estazolam 2mg"},
+      {"儲位":"屜A-1-1","藥代":"EURO","健保碼":"AC124581G0","名稱1":"Eurodin 2mg","名稱2":"悠樂丁 2mg","名稱3":"Estazolam 2mg"},
+      {"儲位":"屜A-1-2","藥代":"MET4","健保碼":"AC60165100","名稱1":"Methydur SR 22mg","名稱2":"思有得 22mg","名稱3":"Methylphenidate 22mg"},
+      {"儲位":"屜A-1-2","藥代":"MET5","健保碼":"AC60152100","名稱1":"Methydur SR 33mg","名稱2":"思有得 33mg","名稱3":"Methylphenidate 33mg"},
+      {"儲位":"屜A-1-2","藥代":"CON3","健保碼":"BC23880100","名稱1":"Concerta 36mg","名稱2":"專思達 36mg","名稱3":"Methylphenidate 36mg"},
+      {"儲位":"屜A-1-2","藥代":"CON2","健保碼":"BC23999100","名稱1":"Concerta 27mg","名稱2":"專思達 27mg","名稱3":"Methylphenidate 27mg"},
+      {"儲位":"屜A-1-2","藥代":"CON1","健保碼":"BC23731100","名稱1":"Concerta 18mg","名稱2":"專思達 18mg","名稱3":"Methylphenidate 18mg"},
+      {"儲位":"屜A-1-2","藥代":"SLE0","健保碼":"NC036761G0","名稱1":"Sleepin 5mg","名稱2":"速入眠 5mg","名稱3":"Nitrazepam 5mg"},
+      {"儲位":"屜A-1-3","藥代":"IMO0","健保碼":"BC181581G0","名稱1":"Imovane 7.5mg","名稱2":"宜眠安 7.5mg","名稱3":"Zopiclone 7.5mg"},
+      {"儲位":"屜A-1-3","藥代":"ZOL0","健保碼":"AC573061G0","名稱1":"Zolpidem 10mg","名稱2":"柔拍 10mg(庫存)","名稱3":""},
+      {"儲位":"屜A-1-4","藥代":"LOR2","健保碼":"AC248851G0","名稱1":"Anxiedin 1mg","名稱2":"安靜 1mg(庫存)","名稱3":"Lorazepam 1mg"},
+      {"儲位":"屜A-1-4","藥代":"ERI0","健保碼":"AC467291G0","名稱1":"Erispan-S","名稱2":"癒利舒盼(庫存)","名稱3":"Fludiazepam"},
+      {"儲位":"屜A-1-4","藥代":"MOD","健保碼":"AC484721G0","名稱1":"Fallep 2mg","名稱2":"服爾眠(庫存)","名稱3":"Flunitrazepam"},
+      {"儲位":"屜A-1-4","藥代":"RIV2","健保碼":"AC596451G0","名稱1":"Rivopam 0.5mg","名稱2":"可那平 0.5mg(庫存)","名稱3":"Clonazepam 0.5mg"},
+      {"儲位":"屜A-1-4","藥代":"RIV3","健保碼":"AA57843100","名稱1":"Rivopam 2mg","名稱2":"可那平 2mg(庫存)","名稱3":"Clonazepam 2mg"},
+      {"儲位":"屜A-1-4","藥代":"LOR3","健保碼":"AC278491G0","名稱1":"lowen 0.5mg","名稱2":"樂穩 0.5mg(庫存)","名稱3":"Lorazepam 0.5mg"},
+      {"儲位":"屜A-1-4","藥代":"LAR0","健保碼":"AC339291G0","名稱1":"Larpam 2mg","名稱2":"樂眠 2mg(庫存)","名稱3":"Lorazepam 2mg"},
+      {"儲位":"屜A-1-4","藥代":"ALEO","健保碼":"AB46145100","名稱1":"Alepan 15mg","名稱2":"安立平 15mg(庫存)","名稱3":"OXAZEPAM 15mg"},
+      {"儲位":"屜A-2-1","藥代":"CLO2","健保碼":"AC453451G0","名稱1":"Clonopam 2mg","名稱2":"克癇平 2mg","名稱3":"Clonazepam 2mg"},
+      {"儲位":"屜A-2-1","藥代":"RIV2","健保碼":"AC596451G0","名稱1":"Rivopam 0.5mg","名稱2":"可那平 0.5mg","名稱3":"Clonazepam 0.5mg"},
+      {"儲位":"屜A-2-1","藥代":"LEN0","健保碼":"BC25713100","名稱1":"Genrem 0.25mg","名稱2":"見眠 0.25mg","名稱3":"brotizolam 0.25mg"},
+      {"儲位":"屜A-2-2","藥代":"RIT0","健保碼":"BC27080100","名稱1":"Ritalin 10mg","名稱2":"利他能 10mg","名稱3":"Methylphenidate 10mg"},
+      {"儲位":"屜A-2-2","藥代":"RIT2","健保碼":"BC25332100","名稱1":"Ritalin  LA 10mg","名稱2":"利他能 LA 10mg","名稱3":"Methylphenidate 10mg"},
+      {"儲位":"屜A-2-2","藥代":"RITI","健保碼":"BC25333100","名稱1":"Ritalin  LA 20mg","名稱2":"利他能 LA 20mg","名稱3":"Methylphenidate 20mg"},
+      {"儲位":"屜A-2-3","藥代":"APOO","健保碼":"BC24626100","名稱1":"Apo-Zopiclone 7.5mg","名稱2":"安保舒眠","名稱3":"Zopiclone"},
+      {"儲位":"屜A-2-3","藥代":"STI0","健保碼":"BC215311G0","名稱1":"Stilnox 10mg","名稱2":"使蒂諾斯 10mg","名稱3":"Zolpidem 10mg"},
+      {"儲位":"屜A-2-3","藥代":"RIT0","健保碼":"BC27080100","名稱1":"Apo-Methylphenidate 10mg","名稱2":"安保美喜 10mg","名稱3":"Methylphenidate 10mg"},
+      {"儲位":"屜A-2-3","藥代":"RIT0","健保碼":"BC27080100","名稱1":"Hytonin 10mg","名稱2":"欣晴 10mg","名稱3":"Methylphenidate 10mg"},
+      {"儲位":"屜A-2-4","藥代":"RIT2","健保碼":"BC25332100","名稱1":"Ritalin  LA 10mg","名稱2":"利他能 LA 10mg(庫存)","名稱3":"Methylphenidate 10mg"},
+      {"儲位":"屜A-2-4","藥代":"RITI","健保碼":"BC25333100","名稱1":"Ritalin  LA 20mg","名稱2":"利他能 LA 20mg(庫存)","名稱3":"Methylphenidate 20mg"},
+      {"儲位":"屜A-2-4","藥代":"BRO0","健保碼":"AC586271G0","名稱1":"Bromazin 1.5mg","名稱2":"牟靜 1.5mg(庫存)","名稱3":"Bromazepam 1.5mg"},
+      {"儲位":"屜A-2-4","藥代":"XANO","健保碼":"BC211401G0","名稱1":"xanax 0.5mg","名稱2":"贊安諾 0.5mg(庫存)","名稱3":"Alprazolam 0.5mg"},
+      {"儲位":"屜A-2-4","藥代":"HAL1","健保碼":"BC217261G0","名稱1":"halcion 0.25mg","名稱2":"酣樂欣 0.25mg(庫存)","名稱3":"Triazolam 0.25mg"},
+      {"儲位":"屜A-2-4","藥代":"RIV0","健保碼":"BC030771G0","名稱1":"Rivotril 0.5mg","名稱2":"利福全 0.5mg(庫存)","名稱3":"Clonazepam 0.5mg"},
+      {"儲位":"屜A-2-4","藥代":"RIVI","健保碼":"BC030781G0","名稱1":"Rivotril 2mg","名稱2":"利福全 2mg(庫存)","名稱3":"Clonazepam 2mg"},
+      {"儲位":"屜A-3-1","藥代":"RIV0","健保碼":"BC030771G0","名稱1":"Rivotril 0.5mg","名稱2":"利福全 0.5mg","名稱3":"Clonazepam 0.5mg"},
+      {"儲位":"屜A-3-1","藥代":"RIVI","健保碼":"BC030781G0","名稱1":"Rivotril 2mg","名稱2":"利福全 2mg","名稱3":"Clonazepam 2mg"},
+      {"儲位":"屜A-3-1","藥代":"LEN0","健保碼":"BC25713100","名稱1":"Lendormin 0.25mg","名稱2":"戀多眠 0.25mg","名稱3":"Brotizolam 0.25mg"},
+      {"儲位":"屜A-3-1","藥代":"CLO1","健保碼":"AC453421G0","名稱1":"Clonopam 0.5mg","名稱2":"克癇平 0.5mg","名稱3":"Clonazepam 0.5mg"},
+      {"儲位":"屜A-3-1","藥代":"BRO0","健保碼":"AC586271G0","名稱1":"Bromazin 1.5mg","名稱2":"牟靜 1.5mg","名稱3":"Bromazepam 1.5mg"},
+      {"儲位":"屜A-3-1","藥代":"TAE0","健保碼":"NC01503100","名稱1":"Taee 5mg","名稱2":"大益 5mg","名稱3":"Chlordiazepoxide 5mg"},
+      {"儲位":"屜A-3-2","藥代":"LAR0","健保碼":"AC339291G0","名稱1":"Larpam 2mg","名稱2":"樂眠 2mg","名稱3":"Lorazepam 2mg"},
+      {"儲位":"屜A-3-2","藥代":"LOR2","健保碼":"AC248851G0","名稱1":"Anxiedin 1mg","名稱2":"安靜 1mg","名稱3":"Lorazepam 1mg"},
+      {"儲位":"屜A-3-2","藥代":"DORO","健保碼":"BC17577100","名稱1":"Dormicum 7.5mg","名稱2":"導美睡 7.5mg","名稱3":"Midazolam 7.5mg"},
+      {"儲位":"屜A-3-2","藥代":"ALEO","健保碼":"AB46145100","名稱1":"Alepan 15mg","名稱2":"安立平 15mg","名稱3":"OXAZEPAM 15mg"},
+      {"儲位":"屜A-3-3","藥代":"ZOL0","健保碼":"AC573061G0","名稱1":"Zolpidem 10mg","名稱2":"柔拍 10mg(庫存)","名稱3":""},
+      {"儲位":"屜A-3-3","藥代":"ZOPI","健保碼":"AC460131G0","名稱1":"Zolon 7.5mg","名稱2":"樂比克 7.5mg","名稱3":"Zopiclone 7.5mg"},
+      {"儲位":"屜A-3-3","藥代":"ZOL2","健保碼":"AC446051G0","名稱1":"Zolnox 10mg","名稱2":"樂必眠 10mg","名稱3":"Zolpidem 10mg"},
+      {"儲位":"屜A-3-3","藥代":"ULT","健保碼":"AC58302100","名稱1":"Cotrma","名稱2":"複克痛","名稱3":"Tramadol 37.5/Acetaminophen 325"},
+      {"儲位":"屜A-3-3","藥代":"HAL1","健保碼":"BC217261G0","名稱1":"halcion 0.25mg","名稱2":"酣樂欣 0.25mg","名稱3":"Triazolam 0.25mg"},
+      {"儲位":"屜A-3-4","藥代":"LEN0","健保碼":"BC25713100","名稱1":"Lendormin 0.25mg","名稱2":"戀多眠 0.25mg(庫存)","名稱3":"Brotizolam 0.25mg"},
+      {"儲位":"屜A-3-4","藥代":"RIT2","健保碼":"BC25332100","名稱1":"Ritalin LA 10mg","名稱2":"利他能 LA 10mg(庫存)","名稱3":"Methylphenidate 10mg"},
+      {"儲位":"屜A-3-4","藥代":"ALP2","健保碼":"AC426861G0","名稱1":"Kinax 0.5mg","名稱2":"景安寧 0.5mg(庫存)","名稱3":"Alprazolam 0.5mg"},
+      {"儲位":"屜A-4-1","藥代":"ALPO","健保碼":"AB577401G0","名稱1":"Alprazolam 0.5mg","名稱2":"安邦 0.5mg","名稱3":"Alprazolam 0.5mg"},
+      {"儲位":"屜A-4-1","藥代":"ALP2","健保碼":"AC426861G0","名稱1":"Kinax 0.5mg","名稱2":"景安寧 0.5mg","名稱3":"Alprazolam 0.5mg"},
+      {"儲位":"屜A-4-1","藥代":"XANO","健保碼":"BC211401G0","名稱1":"xanax 0.5mg","名稱2":"贊安諾 0.5mg","名稱3":"Alprazolam 0.5mg"},
+      {"儲位":"屜A-4-2","藥代":"LOR3","健保碼":"AC278491G0","名稱1":"lowen 0.5mg","名稱2":"樂穩 0.5mg","名稱3":"Lorazepam 0.5mg"},
+      {"儲位":"屜A-4-2","藥代":"LOZ0","健保碼":"AC58337100","名稱1":"Lozepam 30mg","名稱2":"樂息伴 30mg","名稱3":"Flurazepam 30mg"},
+      {"儲位":"屜A-4-2","藥代":"ANX1","健保碼":"AC585611G0","名稱1":"Anxicam 2mg","名稱2":"安心平 2mg","名稱3":"Lorazepam 2mg"},
+      {"儲位":"屜A-4-2","藥代":"LOR0","健保碼":"AC228161G0","名稱1":"Lorazin 1mg","名稱2":"樂力靜 1mg","名稱3":"Lorazepam 2mg"},
+      // 最新新增 11 筆
+      {"儲位":"桌左","藥代":"CARO","健保碼":"AC41247100","名稱1":"Carpine 200mg","名稱2":"卡賓錠 200mg","名稱3":"Carbamazepine 200mg"},
+      {"儲位":"桌左","藥代":"DOPO","健保碼":"AC39431100","名稱1":"DOPADINE 100mg","名稱2":"多巴定 100mg","名稱3":"AMANTADINE 200mg"},
+      {"儲位":"桌左","藥代":"DEP1","健保碼":"AB47553100","名稱1":"DEPATEC 500mg","名稱2":"癲必停 500mg","名稱3":""},
+      {"儲位":"架B左","藥代":"PUO","健保碼":"AB51728100","名稱1":"Purtraline 50mg","名稱2":"克憂寧 50mg","名稱3":"Sertraline 50mg"},
+      {"儲位":"架B左","藥代":"TRA2","健保碼":"AC336641G0","名稱1":"Mesyrel 50mg","名稱2":"美舒鬱 50mg","名稱3":"Trazodone 50mg"},
+      {"儲位":"架B左","藥代":"JUX0","健保碼":"AC41338100","名稱1":"JUXAC 20mg","名稱2":"解鬱 20mg","名稱3":"FLUOXETINE 20mg"},
+      {"儲位":"架B中","藥代":"ARI3","健保碼":"AC60584100","名稱1":"Ezole 5mg","名稱2":"易靜 5mg","名稱3":"Aripiprazole 5mg"},
+      {"儲位":"架B中","藥代":"ESC2","健保碼":"AC61996100","名稱1":"Lecipam 10mg","名稱2":"煩立消 10mg","名稱3":"Escitalopram 10mg"},
+      {"儲位":"架B中","藥代":"LIL0","健保碼":"AC22404100","名稱1":"Lilitin 300mg","名稱2":"鋰利靜 300mg","名稱3":"Lithium 300mg"},
+      {"儲位":"架B中","藥代":"BUP1","健保碼":"AB54977100","名稱1":"Buporin 150mg","名稱2":"必博寧 150mg","名稱3":"Bupropion 150mg"},
+      {"儲位":"架B中","藥代":"MIK1","健保碼":"AC610571G0","名稱1":"Mikoton","名稱2":"秘可通","名稱3":"Sennoside 10mg/Bisacody 2mg/Dioctyl sodium sulfosuccinate 20mg"}
+    ];
+
+    const searchInput = document.getElementById('searchInput');
+    const clearBtn = document.getElementById('clearBtn');
+    const micBtn = document.getElementById('micBtn');
+    const speechStatus = document.getElementById('speechStatus');
+    const cardList = document.getElementById('cardList');
+    const resultCount = document.getElementById('resultCount');
+
+    function renderList(items) {
+      cardList.innerHTML = '';
+      resultCount.textContent = `搜尋結果：${items.length} 筆`;
+
+      if (items.length === 0) {
+        cardList.innerHTML = `
+          <div class="empty-state">
+            <p>查無對應藥品或儲位</p>
+          </div>`;
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      items.forEach(item => {
+        const isStorage = item['名稱2'] && item['名稱2'].includes('庫存');
+        const isZoneB = item['儲位'] && item['儲位'].startsWith('架B');
+        
+        const card = document.createElement('div');
+        card.className = `card ${isStorage ? 'storage' : ''} ${isZoneB ? 'zone-b' : ''}`;
+
+        const aliases = [item['名稱2'], item['名稱3']].filter(Boolean).join(' ｜ ');
+
+        card.innerHTML = `
+          <div class="card-top">
+            <span class="shelf-badge ${isStorage ? 'storage-badge' : ''} ${isZoneB ? 'zone-b-badge' : ''}">${item['儲位']}</span>
+            <div class="code-tags">
+              ${item['藥代'] ? `<span class="tag tag-med">代碼:${item['藥代']}</span>` : ''}
+              ${item['健保碼'] ? `<span class="tag tag-nhi">${item['健保碼']}</span>` : ''}
+            </div>
+          </div>
+          <div class="drug-name-main">${item['名稱1']}</div>
+          ${aliases ? `<div class="drug-name-sub">${aliases}</div>` : ''}
+        `;
+        fragment.appendChild(card);
+      });
+      cardList.appendChild(fragment);
+    }
+
+    function doSearch(keyword) {
+      const q = keyword.trim().toLowerCase();
+      if (!q) {
+        renderList(DRUG_DATA);
+        clearBtn.style.display = 'none';
+        return;
+      }
+      clearBtn.style.display = 'block';
+
+      const qNorm = q.replace(/o/g, '0');
+
+      const results = DRUG_DATA.filter(item => {
+        const shelf = (item['儲位'] || '').toLowerCase();
+        const code = (item['藥代'] || '').toLowerCase();
+        const codeNorm = code.replace(/o/g, '0');
+        const nhi = (item['健保碼'] || '').toLowerCase();
+        const n1 = (item['名稱1'] || '').toLowerCase();
+        const n2 = (item['名稱2'] || '').toLowerCase();
+        const n3 = (item['名稱3'] || '').toLowerCase();
+
+        return shelf.includes(q) ||
+               code.includes(q) ||
+               codeNorm.includes(qNorm) ||
+               nhi.includes(q) ||
+               n1.includes(q) ||
+               n2.includes(q) ||
+               n3.includes(q);
+      });
+
+      renderList(results);
+    }
+
+    searchInput.addEventListener('input', (e) => doSearch(e.target.value));
+
+    clearBtn.addEventListener('click', () => {
+      searchInput.value = '';
+      doSearch('');
+      searchInput.focus();
+    });
+
+    // 語音辨識 Web Speech API
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'zh-TW';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      let isListening = false;
+
+      micBtn.addEventListener('click', () => {
+        if (isListening) {
+          recognition.stop();
+          return;
+        }
+        try {
+          recognition.start();
+        } catch(err) {
+          console.error(err);
+        }
+      });
+
+      recognition.onstart = () => {
+        isListening = true;
+        micBtn.classList.add('listening');
+        speechStatus.textContent = '正在聆聽中，請說藥品名稱或代碼...';
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        speechStatus.textContent = `辨識結果: "${transcript}"`;
+        searchInput.value = transcript;
+        doSearch(transcript);
+      };
+
+      recognition.onerror = () => {
+        speechStatus.textContent = '未偵測到聲音或被中斷';
+        isListening = false;
+        micBtn.classList.remove('listening');
+      };
+
+      recognition.onend = () => {
+        isListening = false;
+        micBtn.classList.remove('listening');
+        setTimeout(() => { speechStatus.textContent = ''; }, 3000);
+      };
+    } else {
+      micBtn.addEventListener('click', () => {
+        alert('您的瀏覽器不支援原生語音辨識，請使用 Chrome 或 Safari 開啟。');
+      });
+    }
+
+    renderList(DRUG_DATA);
+  </script>
+</body>
+</html>
